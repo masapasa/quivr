@@ -12,3 +12,4 @@ RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt --timeout 100
 COPY . /code/
 
 CMD ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "5050"]
+# uvicorn main:app --reload --host 0.0.0.0 --port 5050

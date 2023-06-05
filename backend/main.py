@@ -2,11 +2,13 @@ import os
 import shutil
 import time
 from tempfile import SpooledTemporaryFile
+from urllib.request import HTTPBasicAuthHandler
 
 import pypandoc
 from auth.auth_bearer import JWTBearer
 from crawl.crawler import CrawlWebsite
 from fastapi import Depends, FastAPI, UploadFile
+from fastapi.security import HTTPBearer
 from llm.qa import get_qa_llm
 from llm.summarization import llm_evaluate_summaries
 from logger import get_logger
@@ -19,8 +21,8 @@ from utils.file import convert_bytes, get_file_size
 from utils.processors import filter_file
 from utils.vectors import (CommonsDep, create_user, similarity_search,
                            update_user_request_count)
-
 logger = get_logger(__name__)
+
 
 app = FastAPI()
 

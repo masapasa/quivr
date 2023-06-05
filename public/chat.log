@@ -1,0 +1,409 @@
+"quivr/frontend/app/(auth)/signup/page.tsx" ```"use client";
+import Button from "@/app/components/ui/Button";
+import Card from "@/app/components/ui/Card";
+import Field from "@/app/components/ui/Field";
+import PageHeading from "@/app/components/ui/PageHeading";
+import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import Link from "next/link";
+import { useState } from "react";
+
+export default function SignUp() {
+  const { supabase } = useSupabase();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isPending, setIsPending] = useState(false);
+
+  const { publish } = useToast();
+  const handleSignUp = async () => {
+    setIsPending(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      console.error("Error signing up:", error.message);
+      publish({
+        variant: "danger",
+        text: `Error signing up: ${error.message}`,
+      });
+    } else if (data) {
+      publish({
+        variant: "success",
+        text: "Confirmation Email sent, please check your email",
+      });
+    }
+    setIsPending(false);
+  };
+
+  return (
+    <main>
+      <section className="w-full min-h-screen h-full outline-none flex flex-col gap-5 items-center justify-center p-6">
+        <PageHeading title="Sign Up" subtitle="Create your account" />
+        <Card className="max-w-md w-full p-5 sm:p-10 text-left">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSignUp();
+            }}
+            className="flex flex-col gap-2"
+          >
+            <Field
+              name="email"
+              required
+              type="email"
+              placeholder="Email"
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <Field
+              name="password"
+              required
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+            <div className="flex flex-col items-center justify-center mt-2 gap-2">
+              <Button isLoading={isPending}>Sign Up</Button>
+              <Link href="/login">Already registered? Sign in</Link>
+            </div>
+          </form>
+        </Card>
+      </section>
+    </main>
+  );
+}
+```
+"quivr/frontend/app/(auth)/logout/page.tsx" ```"use client";
+import Button from "@/app/components/ui/Button";
+import Card from "@/app/components/ui/Card";
+import PageHeading from "@/app/components/ui/PageHeading";
+import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+export default function Logout() {
+  const { supabase } = useSupabase();
+  const [isPending, setIsPending] = useState(false);
+
+  const { publish } = useToast();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    setIsPending(true);
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Error logging out:", error.message);
+      publish({
+        variant: "danger",
+        text: `Error logging out: ${error.message}`,
+      });
+    } else {
+      publish({
+        variant: "success",
+        text: "Logged out successfully",
+      });
+      router.replace("/");
+    }
+    setIsPending(false);
+  };
+
+  return (
+    <main>
+      <section className="w-full min-h-screen h-full outline-none flex flex-col gap-5 items-center justify-center p-6">
+        <PageHeading title="Logout" subtitle="See you next time" />
+        <Card className="max-w-md w-full p-5 sm:p-10 text-center flex flex-col items-center gap-5">
+          <h2 className="text-lg">Are you sure you want to sign out?</h2>
+          <div className="flex gap-5 items-center justify-center">
+            <Link href={"/"}>
+              <Button variant={"primary"}>Go back</Button>
+            </Link>
+            <Button
+              isLoading={isPending}
+              variant={"danger"}
+              onClick={() => handleLogout()}
+            >
+              Log Out
+            </Button>
+          </div>
+        </Card>
+      </section>
+    </main>
+  );
+}
+```
+"quivr/frontend/app/(auth)/login/page.tsx" ```"use client";
+import Button from "@/app/components/ui/Button";
+import Card from "@/app/components/ui/Card";
+import { Divider } from "@/app/components/ui/Divider";
+import Field from "@/app/components/ui/Field";
+import PageHeading from "@/app/components/ui/PageHeading";
+import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { useState } from "react";
+import { GoogleLoginButton } from "./components/GoogleLogin";
+import { MagicLinkLogin } from "./components/MagicLinkLogin";
+
+export default function Login() {
+  const { supabase, session } = useSupabase();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isPending, setIsPending] = useState(false);
+
+  const { publish } = useToast();
+
+  const handleLogin = async () => {
+    setIsPending(true);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    });
+
+    if (error) {
+      publish({
+        variant: "danger",
+        text: error.message,
+      });
+    } else if (data) {
+      publish({
+        variant: "success",
+        text: "Successfully logged in",
+      });
+    }
+    setIsPending(false);
+  };
+
+  if (session?.user !== undefined) {
+    redirect("/");
+  }
+
+  return (
+    <main>
+      <section className="w-full min-h-screen h-full outline-none flex flex-col gap-5 items-center justify-center p-6">
+        <PageHeading title="Login" subtitle="Welcome back" />
+        <Card className="max-w-md w-full p-5 sm:p-10 text-left">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleLogin();
+            }}
+            className="flex flex-col gap-2"
+          >
+            <Field
+              name="email"
+              required
+              type="email"
+              placeholder="Email"
+              onChange={(e) => setEmail(e.target.value)}
+              value={email}
+            />
+            <Field
+              name="password"
+              required
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+            <div className="flex flex-col items-center justify-center mt-2 gap-2">
+              <Button type="submit" isLoading={isPending}>
+                Login
+              </Button>
+              <Link href="/signup">Don{"'"}t have an account? Sign up</Link>
+            </div>
+            <Divider text="or" />
+            <div className="flex flex-col items-center justify-center mt-2 gap-2">
+              <GoogleLoginButton />
+            </div>
+            <Divider text="or" />
+            <MagicLinkLogin email={email} setEmail={setEmail} />
+          </form>
+        </Card>
+      </section>
+    </main>
+  );
+}
+```
+"quivr/frontend/app/(auth)/login/components/MagicLinkLogin/index.tsx" ```"use client";
+import Button from "@/app/components/ui/Button";
+import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import { useState } from "react";
+
+type MaginLinkLoginProps = {
+  email: string;
+  setEmail: (email: string) => void;
+};
+
+export const MagicLinkLogin = ({ email, setEmail }: MaginLinkLoginProps) => {
+  const { supabase } = useSupabase();
+  const [isPending, setIsPending] = useState(false);
+
+  const { publish } = useToast();
+
+  const handleLogin = async () => {
+    if (email === "") {
+      publish({
+        variant: "danger",
+        text: "Please enter your email address",
+      });
+      return;
+    }
+
+    setIsPending(true);
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.hostname, // current domain name. for eg localhost:3000, localhost:3001, https://...
+      },
+    });
+
+    if (error) {
+      publish({
+        variant: "danger",
+        text: error.message,
+      });
+    } else {
+      publish({
+        variant: "success",
+        text: "Magic link sent successfully if email recognized",
+      });
+
+      setEmail("");
+    }
+    setIsPending(false);
+  };
+
+  return (
+    <Button
+      type="button"
+      variant={"tertiary"}
+      onClick={handleLogin}
+      isLoading={isPending}
+    >
+      Send Magic Link
+    </Button>
+  );
+};
+```
+"quivr/frontend/app/(auth)/login/components/GoogleLogin/index.tsx" ```import Button from "@/app/components/ui/Button";
+
+import { useGoogleLogin } from "./hooks/useGoogleLogin";
+
+export const GoogleLoginButton = () => {
+  const { isPending, signInWithGoogle } = useGoogleLogin();
+
+  return (
+    <Button
+      onClick={signInWithGoogle}
+      isLoading={isPending}
+      variant={"secondary"}
+      type="button"
+    >
+      Login with Google
+    </Button>
+  );
+};
+```
+"quivr/frontend/app/(auth)/login/components/GoogleLogin/hooks/useGoogleLogin.ts" ```import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import { useState } from "react";
+
+export const useGoogleLogin = () => {
+  const { supabase } = useSupabase();
+
+  const { publish } = useToast();
+  const [isPending, setIsPending] = useState(false);
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+    setIsPending(false);
+    if (error) {
+      publish({
+        variant: "danger",
+        text: "An error occurred ",
+      });
+    }
+  };
+
+  return {
+    signInWithGoogle,
+    isPending,
+  };
+};
+```. "quivr/backend/auth/auth_handler.py" ```import os
+from datetime import datetime, timedelta
+from typing import Optional
+
+from jose import jwt
+from jose.exceptions import JWTError
+
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+ALGORITHM = "HS256"
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def decode_access_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], options={"verify_aud": False})
+        return payload
+    except JWTError as e:
+        return None
+
+def get_user_email_from_token(token: str):
+    payload = decode_access_token(token)
+    if payload:
+        return payload.get("email")
+    return "none"```
+"quivr/backend/auth/auth_bearer.py" ```import os
+from typing import Optional
+
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from .auth_handler import decode_access_token
+
+
+class JWTBearer(HTTPBearer):
+    def __init__(self, auto_error: bool = True):
+        super().__init__(auto_error=auto_error)
+
+    async def __call__(self, request: Request):
+        credentials: Optional[HTTPAuthorizationCredentials] = await super().__call__(request)
+        if os.environ.get("AUTHENTICATE") == "false":
+            return True
+        if credentials:
+            if not credentials.scheme == "Bearer":
+                raise HTTPException(status_code=402, detail="Invalid authorization scheme.")
+            token = credentials.credentials
+            if not self.verify_jwt(token):
+                raise HTTPException(status_code=402, detail="Invalid token or expired token.")
+            return self.verify_jwt(token)  # change this line
+        else:
+            raise HTTPException(status_code=403, detail="Invalid authorization code.")
+
+    def verify_jwt(self, jwtoken: str):
+        payload = decode_access_token(jwtoken)
+        return payload```. this is the nextjs frontend and fastapi backend code for authentication. please give me complete correct code to solve this error

@@ -23,11 +23,6 @@ documents_vector_store = SupabaseVectorStore(
     supabase_client, embeddings, table_name="vectors")
 summaries_vector_store = SupabaseVectorStore(
     supabase_client, embeddings, table_name="summaries")
-
-
-
-
-
 def common_dependencies():
     return {
         "supabase": supabase_client,
@@ -35,13 +30,7 @@ def common_dependencies():
         "documents_vector_store": documents_vector_store,
         "summaries_vector_store": summaries_vector_store
     }
-
-
 CommonsDep = Annotated[dict, Depends(common_dependencies)]
-
-
-
-
 def create_summary(document_id, content, metadata):
     logger.info(f"Summarizing document {content[:100]}")
     summary = llm_summerize(content)
@@ -73,13 +62,8 @@ def update_user_request_count(user_id, date, requests_count):
     logger.info(f"User {user_id} request count updated to {requests_count}")
     supabase_client.table("users").update(
         { "requests_count": requests_count}).match({"user_id": user_id, "date": date}).execute()
-
-
 def create_embedding(content):
     return embeddings.embed_query(content)
-
-
-
 def similarity_search(query, table='match_summaries', top_k=5, threshold=0.5):
     query_embedding = create_embedding(query)
     summaries = supabase_client.rpc(

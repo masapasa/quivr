@@ -1,4 +1,52 @@
-import os
+"INFO:     127.0.0.1:61793 - "POST /chat/ HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "quivr/.venv/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 428, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "quivr/.venv/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 78, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "quivr/.venv/lib/python3.11/site-packages/fastapi/applications.py", line 276, in __call__
+    await super().__call__(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/applications.py", line 122, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/errors.py", line 184, in __call__
+    raise exc
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/errors.py", line 162, in __call__
+    await self.app(scope, receive, _send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/cors.py", line 91, in __call__
+    await self.simple_response(scope, receive, send, request_headers=headers)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/cors.py", line 146, in simple_response
+    await self.app(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 79, in __call__
+    raise exc
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 68, in __call__
+    await self.app(scope, receive, sender)
+  File "quivr/.venv/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 21, in __call__
+    raise e
+  File "quivr/.venv/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/routing.py", line 718, in __call__
+    await route.handle(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "quivr/.venv/lib/python3.11/site-packages/starlette/routing.py", line 66, in app
+    response = await func(request)
+               ^^^^^^^^^^^^^^^^^^^
+  File "quivr/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 237, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "quivr/.venv/lib/python3.11/site-packages/fastapi/routing.py", line 163, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "quivr/backend/main.py", line 82, in chat_endpoint
+    qa = get_qa_llm(chat_message, user.email)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "quivr/backend/llm/qa.py", line 80, in get_qa_llm
+    openai_api_key, anthropic_api_key, supabase_url, supabase_key = get_environment_variables()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: cannot unpack non-iterable NoneType object". "backend/llm/qa.py" ```import os
 from typing import Any, List
 from dotenv import load_dotenv
 
@@ -57,12 +105,15 @@ class CustomSupabaseVectorStore(SupabaseVectorStore):
         documents = [doc for doc, _ in match_result]
 
         return documents
+
 def get_environment_variables():
     openai_api_key = os.getenv("OPENAI_API_KEY")
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
     supabase_url = os.getenv("SUPABASE_URL")
+    
+    print(f"supabase_url {supabase_url}")
     supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
-    return openai_api_key, anthropic_api_key, supabase_url, supabase_key
+
 def create_clients_and_embeddings(openai_api_key, supabase_url, supabase_key):
     embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
     supabase_client = create_client(supabase_url, supabase_key)
@@ -96,4 +147,13 @@ def get_qa_llm(chat_message: ChatMessage, user_id: str):
         qa = ConversationalRetrievalChain.from_llm(
             ChatAnthropic(
                 model=chat_message.model, anthropic_api_key=anthropic_api_key, temperature=chat_message.temperature, max_tokens_to_sample=chat_message.max_tokens), vector_store.as_retriever(), memory=memory, verbose=False, max_tokens_limit=102400)
-    return qa
+    return qa```. "backend/llm/qa.py" ```from typing import List, Tuple
+
+from pydantic import BaseModel
+class ChatMessage(BaseModel):
+    model: str = "gpt-3.5-turbo"
+    question: str
+    history: List[Tuple[str, str]]
+    temperature: float = 0.0
+    max_tokens: int = 256
+    use_summarization: bool = False```

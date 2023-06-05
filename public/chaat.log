@@ -1,0 +1,691 @@
+"quivr/frontend/app/upload/page.tsx" ```"use client";
+import Link from "next/link";
+import Button from "../components/ui/Button";
+import { Divider } from "../components/ui/Divider";
+import PageHeading from "../components/ui/PageHeading";
+import { Crawler } from "./components/Crawler";
+import { FileUploader } from "./components/FileUploader";
+
+export default function UploadPage() {
+  return (
+    <main className="pt-24">
+      <PageHeading
+        title="Upload Knowledge"
+        subtitle="Text, document, spreadsheet, presentation, audio, video, and URLs supported"
+      />
+      <FileUploader />
+      <Divider text="or" className="m-5" />
+      <Crawler />
+      <div className="flex flex-col items-center justify-center gap-5 mt-5">
+        <Link href={"/chat"}>
+          <Button variant={"secondary"} className="py-3">
+            Chat
+          </Button>
+        </Link>
+      </div>
+    </main>
+  );
+}
+```
+"quivr/frontend/app/upload/components/Crawler/index.tsx" ```"use client";
+import Button from "@/app/components/ui/Button";
+import Card from "@/app/components/ui/Card";
+import Field from "@/app/components/ui/Field";
+import { useCrawler } from "./hooks/useCrawler";
+
+export const Crawler = (): JSX.Element => {
+  const { urlInputRef, isCrawling, crawlWebsite } = useCrawler();
+  return (
+    <div className="w-full">
+      <div className="flex justify-center gap-5 px-6">
+        <div className="max-w-xl w-full">
+          <div className="flex-col justify-center gap-5">
+            <Card className="h-32 flex gap-5 justify-center items-center px-5">
+              <div className="text-center max-w-sm w-full flex flex-col gap-5 items-center">
+                <Field
+                  name="crawlurl"
+                  ref={urlInputRef}
+                  type="text"
+                  placeholder="Enter a website URL"
+                  className="w-full"
+                />
+              </div>
+              <div className="flex flex-col items-center justify-center gap-5">
+                <Button isLoading={isCrawling} onClick={crawlWebsite}>
+                  Crawl
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+```
+"quivr/frontend/app/upload/components/Crawler/hooks/useCrawler.ts" ```import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import { useAxios } from "@/lib/useAxios";
+import { redirect } from "next/navigation";
+import { useCallback, useRef, useState } from "react";
+import { isValidUrl } from "../helpers/isValidUrl";
+
+export const useCrawler = () => {
+  const [isCrawling, setCrawling] = useState(false);
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const { session } = useSupabase();
+  const { publish } = useToast();
+  const { axiosInstance } = useAxios();
+
+  if (session === null) {
+    redirect("/login");
+  }
+
+  const crawlWebsite = useCallback(async () => {
+    setCrawling(true);
+    // Validate URL
+    const url = urlInputRef.current ? urlInputRef.current.value : null;
+
+    if (!url || !isValidUrl(url)) {
+      // Assuming you have a function to validate URLs
+      publish({
+        variant: "danger",
+        text: "Invalid URL",
+      });
+      setCrawling(false);
+      return;
+    }
+
+    // Configure parameters
+    const config = {
+      url: url,
+      js: false,
+      depth: 1,
+      max_pages: 100,
+      max_time: 60,
+    };
+
+    try {
+      const response = await axiosInstance.post(`/crawl`, config);
+
+      publish({
+        variant: response.data.type,
+        text: response.data.message,
+      });
+    } catch (error: unknown) {
+      publish({
+        variant: "danger",
+        text: "Failed to crawl website: " + JSON.stringify(error),
+      });
+    } finally {
+      setCrawling(false);
+    }
+  }, [session.access_token, publish]);
+
+  return {
+    isCrawling,
+    urlInputRef,
+
+    crawlWebsite,
+  };
+};
+```
+"quivr/frontend/app/upload/components/Crawler/helpers/isValidUrl.ts" ```export const isValidUrl = (string: string) => {
+  try {
+    new URL(string);
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+```
+"quivr/frontend/app/upload/components/FileUploader/index.tsx" ```"use client";
+import { AnimatePresence } from "framer-motion";
+import Button from "../../../components/ui/Button";
+import Card from "../../../components/ui/Card";
+import FileComponent from "./components/FileComponent";
+import { useFileUploader } from "./hooks/useFileUploader";
+
+export const FileUploader = (): JSX.Element => {
+  const {
+    getInputProps,
+    getRootProps,
+    isDragActive,
+    isPending,
+    open,
+    pendingFileIndex,
+    uploadAllFiles,
+    files,
+    setFiles,
+  } = useFileUploader();
+
+  return (
+    <section
+      {...getRootProps()}
+      className="w-full outline-none flex flex-col gap-10 items-center justify-center px-6 py-3"
+    >
+      <div className="flex flex-col sm:flex-row max-w-3xl w-full items-center gap-5">
+        <div className="flex-1 w-full">
+          <Card className="h-52 flex justify-center items-center">
+            <input {...getInputProps()} />
+            <div className="text-center p-6 max-w-sm w-full flex flex-col gap-5 items-center">
+              {isDragActive ? (
+                <p className="text-blue-600">Drop the files here...</p>
+              ) : (
+                <button
+                  onClick={open}
+                  className="opacity-50 h-full cursor-pointer hover:opacity-100 hover:underline transition-opacity"
+                >
+                  Drag and drop files here, or click to browse
+                </button>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {files.length > 0 && (
+          <div className="flex-1 w-full">
+            <Card className="h-52 py-3 overflow-y-auto">
+              {files.length > 0 ? (
+                <AnimatePresence mode="popLayout">
+                  {files.map((file) => (
+                    <FileComponent
+                      key={file.name + file.size}
+                      file={file}
+                      setFiles={setFiles}
+                    />
+                  ))}
+                </AnimatePresence>
+              ) : null}
+            </Card>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-col items-center justify-center">
+        <Button isLoading={isPending} onClick={uploadAllFiles}>
+          {isPending ? `Uploading ${files[pendingFileIndex].name}` : "Upload"}
+        </Button>
+      </div>
+    </section>
+  );
+};
+```
+"quivr/frontend/app/upload/components/FileUploader/components/FileComponent.tsx" ```import { motion } from "framer-motion";
+import { Dispatch, RefObject, SetStateAction, forwardRef } from "react";
+import { MdClose } from "react-icons/md";
+
+interface FileComponentProps {
+  file: File;
+  setFiles: Dispatch<SetStateAction<File[]>>;
+}
+
+const FileComponent = forwardRef(
+  ({ file, setFiles }: FileComponentProps, forwardedRef) => {
+    return (
+      <motion.div
+        initial={{ x: "-10%", opacity: 0 }}
+        animate={{ x: "0%", opacity: 1 }}
+        exit={{ x: "10%", opacity: 0 }}
+        layout
+        ref={forwardedRef as RefObject<HTMLDivElement>}
+        className="relative flex flex-row gap-1 py-2 dark:bg-black border-b last:border-none border-black/10 dark:border-white/25 leading-none px-6 overflow-hidden"
+      >
+        <div className="flex flex-1">
+          <div className="flex flex-col">
+            <span className="overflow-ellipsis overflow-hidden whitespace-nowrap">
+              {file.name}
+            </span>
+            <span className="text-xs opacity-50 overflow-hidden text-ellipsis">
+              {(file.size / 1000).toFixed(3)} kb
+            </span>
+          </div>
+        </div>
+        <button
+          role="remove file"
+          className="text-xl text-red-500 text-ellipsis absolute top-0 h-full right-0 flex items-center justify-center bg-white dark:bg-black p-3 shadow-md aspect-square"
+          onClick={() =>
+            setFiles((files) => files.filter((f) => f.name !== file.name))
+          }
+        >
+          <MdClose />
+        </button>
+      </motion.div>
+    );
+  }
+);
+
+FileComponent.displayName = "FileComponent";
+
+export default FileComponent;
+```
+"quivr/frontend/app/upload/components/FileUploader/hooks/useFileUploader.ts" ```import { useSupabase } from "@/app/supabase-provider";
+import { useToast } from "@/lib/hooks/useToast";
+import { useAxios } from "@/lib/useAxios";
+import { redirect } from "next/navigation";
+import { useCallback, useState } from "react";
+import { FileRejection, useDropzone } from "react-dropzone";
+
+export const useFileUploader = () => {
+  const [isPending, setIsPending] = useState(false);
+  const { publish } = useToast();
+  const [files, setFiles] = useState<File[]>([]);
+  const [pendingFileIndex, setPendingFileIndex] = useState<number>(0);
+  const { session } = useSupabase();
+
+  const { axiosInstance } = useAxios();
+
+  if (session === null) {
+    redirect("/login");
+  }
+
+  const upload = useCallback(
+    async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const response = await axiosInstance.post(`/upload`, formData);
+
+        publish({
+          variant: response.data.type,
+          text:
+            (response.data.type === "success"
+              ? "File uploaded successfully: "
+              : "") + JSON.stringify(response.data.message),
+        });
+      } catch (error: unknown) {
+        publish({
+          variant: "danger",
+          text: "Failed to upload file: " + JSON.stringify(error),
+        });
+      }
+    },
+    [session.access_token, publish]
+  );
+  const onDrop = (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+    if (fileRejections.length > 0) {
+      publish({ variant: "danger", text: "File too big." });
+      return;
+    }
+
+    for (let i = 0; i < acceptedFiles.length; i++) {
+      const file = acceptedFiles[i];
+      const isAlreadyInFiles =
+        files.filter((f) => f.name === file.name && f.size === file.size)
+          .length > 0;
+      if (isAlreadyInFiles) {
+        publish({
+          variant: "warning",
+          text: `${file.name} was already added`,
+        });
+        acceptedFiles.splice(i, 1);
+      }
+    }
+    setFiles((files) => [...files, ...acceptedFiles]);
+  };
+  const uploadAllFiles = async () => {
+    if (files.length === 0) {
+      publish({
+        text: "Please, add files to upload",
+        variant: "warning",
+      });
+      return;
+    }
+    setIsPending(true);
+
+    for (const file of files) {
+      await upload(file);
+      setPendingFileIndex((i) => i + 1);
+    }
+    setPendingFileIndex(0);
+    setFiles([]);
+    setIsPending(false);
+  };
+  const { getInputProps, getRootProps, isDragActive, open } = useDropzone({
+    onDrop,
+    noClick: true,
+    maxSize: 100000000, // 1 MB
+  });
+  return {
+    isPending,
+    getInputProps,
+    getRootProps,
+    isDragActive,
+    open,
+    uploadAllFiles,
+    pendingFileIndex,
+
+    files,
+    setFiles,
+  };
+};
+```. this is the nextjs frontend code for file upload. "quivr/backend/utils/vectors.py" ```import os
+from typing import Annotated, List, Tuple
+
+from fastapi import Depends, UploadFile
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.schema import Document
+from langchain.vectorstores import SupabaseVectorStore
+from llm.summarization import llm_summerize
+from logger import get_logger
+from pydantic import BaseModel
+from supabase import Client, create_client
+
+logger = get_logger(__name__)
+
+
+openai_api_key = os.environ.get("OPENAI_API_KEY")
+anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+supabase_url = os.environ.get("SUPABASE_URL")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+supabase_client: Client = create_client(supabase_url, supabase_key)
+documents_vector_store = SupabaseVectorStore(
+    supabase_client, embeddings, table_name="vectors")
+summaries_vector_store = SupabaseVectorStore(
+    supabase_client, embeddings, table_name="summaries")
+def common_dependencies():
+    return {
+        "supabase": supabase_client,
+        "embeddings": embeddings,
+        "documents_vector_store": documents_vector_store,
+        "summaries_vector_store": summaries_vector_store
+    }
+CommonsDep = Annotated[dict, Depends(common_dependencies)]
+def create_summary(document_id, content, metadata):
+    logger.info(f"Summarizing document {content[:100]}")
+    summary = llm_summerize(content)
+    logger.info(f"Summary: {summary}")
+    metadata['document_id'] = document_id
+    summary_doc_with_metadata = Document(
+        page_content=summary, metadata=metadata)
+    sids = summaries_vector_store.add_documents(
+        [summary_doc_with_metadata])
+    if sids and len(sids) > 0:
+        supabase_client.table("summaries").update(
+            {"document_id": document_id}).match({"id": sids[0]}).execute()
+
+def create_vector(user_id,doc):
+    logger.info(f"Creating vector for document")
+    logger.info(f"Document: {doc}")
+    sids = documents_vector_store.add_documents(
+        [doc])
+    if sids and len(sids) > 0:
+        supabase_client.table("vectors").update(
+            {"user_id": user_id}).match({"id": sids[0]}).execute()
+
+def create_user(user_id, date):
+    logger.info(f"New user entry in db document for user {user_id}")
+    supabase_client.table("users").insert(
+        {"user_id": user_id, "date": date, "requests_count": 1}).execute()
+
+def update_user_request_count(user_id, date, requests_count):
+    logger.info(f"User {user_id} request count updated to {requests_count}")
+    supabase_client.table("users").update(
+        { "requests_count": requests_count}).match({"user_id": user_id, "date": date}).execute()
+def create_embedding(content):
+    return embeddings.embed_query(content)
+def similarity_search(query, table='match_summaries', top_k=5, threshold=0.5):
+    query_embedding = create_embedding(query)
+    summaries = supabase_client.rpc(
+        table, {'query_embedding': query_embedding,
+                'match_count': top_k, 'match_threshold': threshold}
+    ).execute()
+    return summaries.data
+```
+"quivr/backend/utils/file.py" ```import hashlib
+
+from fastapi import UploadFile
+def convert_bytes(bytes, precision=2):
+    """Converts bytes into a human-friendly format."""
+    abbreviations = ['B', 'KB', 'MB']
+    if bytes <= 0:
+        return '0 B'
+    size = bytes
+    index = 0
+    while size >= 1024 and index < len(abbreviations) - 1:
+        size /= 1024
+        index += 1
+    return f'{size:.{precision}f} {abbreviations[index]}'
+
+def get_file_size(file: UploadFile):
+    # move the cursor to the end of the file
+    file.file._file.seek(0, 2)
+    file_size = file.file._file.tell()  # Getting the size of the file
+    # move the cursor back to the beginning of the file 
+    file.file.seek(0)
+
+    return file_size
+def compute_sha1_from_file(file_path):
+    with open(file_path, "rb") as file:
+        bytes = file.read()
+        readable_hash = compute_sha1_from_content(bytes)
+    return readable_hash
+def compute_sha1_from_content(content):
+    readable_hash = hashlib.sha1(content).hexdigest()
+    return readable_hash```
+"quivr/backend/utils/processors.py" ```import os
+
+from fastapi import Depends, FastAPI, UploadFile
+from models.users import User
+from parsers.audio import process_audio
+from parsers.common import file_already_exists
+from parsers.csv import process_csv
+from parsers.docx import process_docx
+from parsers.epub import process_epub
+from parsers.html import process_html
+from parsers.markdown import process_markdown
+from parsers.notebook import process_ipnyb
+from parsers.odt import process_odt
+from parsers.pdf import process_pdf
+from parsers.powerpoint import process_powerpoint
+from parsers.txt import process_txt
+from supabase import Client
+
+file_processors = {
+    ".txt": process_txt,
+    ".csv": process_csv,
+    ".md": process_markdown,
+    ".markdown": process_markdown,
+    ".m4a": process_audio,
+    ".mp3": process_audio,
+    ".webm": process_audio,
+    ".mp4": process_audio,
+    ".mpga": process_audio,
+    ".wav": process_audio,
+    ".mpeg": process_audio,
+    ".pdf": process_pdf,
+    ".html": process_html,
+    ".pptx": process_powerpoint,
+    ".docx": process_docx,
+    ".odt": process_odt,
+    ".epub": process_epub,
+    ".ipynb": process_ipnyb,
+}
+async def filter_file(file: UploadFile, enable_summarization: bool, supabase_client: Client, user: User):
+    if await file_already_exists(supabase_client, file, user):
+        return {"message": f"🤔 {file.filename} already exists.", "type": "warning"}
+    elif file.file._file.tell()  < 1:
+        return {"message": f"❌ {file.filename} is empty.", "type": "error"}
+    else:
+        file_extension = os.path.splitext(file.filename)[-1].lower()  # Convert file extension to lowercase
+        if file_extension in file_processors:
+            await file_processors[file_extension](file, enable_summarization, user)
+            return {"message": f"✅ {file.filename} has been uploaded.", "type": "success"}
+        else:
+            return {"message": f"❌ {file.filename} is not supported.", "type": "error"}
+
+```. "backend/main.py" ```import os
+import shutil
+import time
+from tempfile import SpooledTemporaryFile
+from urllib.request import HTTPBasicAuthHandler
+
+import pypandoc
+from auth.auth_bearer import JWTBearer
+from crawl.crawler import CrawlWebsite
+from fastapi import Depends, FastAPI, UploadFile
+from fastapi.security import HTTPBearer
+from llm.qa import get_qa_llm
+from llm.summarization import llm_evaluate_summaries
+from logger import get_logger
+from middlewares.cors import add_cors_middleware
+from models.chats import ChatMessage
+from models.users import User
+from pydantic import BaseModel
+from supabase import Client
+from utils.file import convert_bytes, get_file_size
+from utils.processors import filter_file
+from utils.vectors import (CommonsDep, create_user, similarity_search,
+                           update_user_request_count)
+logger = get_logger(__name__)
+
+
+app = FastAPI()
+security = JWTBearer()
+print(security)
+
+
+add_cors_middleware(app)
+
+
+
+@app.on_event("startup")
+async def startup_event():
+    pypandoc.download_pandoc()
+
+
+
+
+@app.post("/upload", dependencies=[Depends(JWTBearer())])
+async def upload_file(commons: CommonsDep,  file: UploadFile, enable_summarization: bool = False, credentials: dict = Depends(JWTBearer())):
+    max_brain_size = os.getenv("MAX_BRAIN_SIZE")
+   
+    user = User(email=credentials.get('email', 'none'))
+    user_vectors_response = commons['supabase'].table("vectors").select(
+        "name:metadata->>file_name, size:metadata->>file_size", count="exact") \
+            .filter("user_id", "eq", user.email)\
+            .execute()
+    documents = user_vectors_response.data  # Access the data from the response
+    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    user_unique_vectors = [dict(t) for t in set(tuple(d.items()) for d in documents)]
+
+    current_brain_size = sum(float(doc['size']) for doc in user_unique_vectors)
+
+    file_size = get_file_size(file)
+
+    remaining_free_space =  float(max_brain_size) - (current_brain_size)
+
+    if remaining_free_space - file_size < 0:
+        message = {"message": f"❌ User's brain will exceed maximum capacity with this upload. Maximum file allowed is : {convert_bytes(remaining_free_space)}", "type": "error"}
+    else: 
+        message = await filter_file(file, enable_summarization, commons['supabase'], user)
+ 
+    return message
+
+
+@app.post("/chat/", dependencies=[Depends(JWTBearer())])
+async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, credentials: dict = Depends(JWTBearer())):
+    user = User(email=credentials.get('email', 'none'))
+    date = time.strftime("%Y%m%d")
+    max_requests_number = os.getenv("MAX_REQUESTS_NUMBER")
+    response = commons['supabase'].from_('users').select(
+    '*').filter("user_id", "eq", user.email).filter("date", "eq", date).execute()
+
+
+    userItem = next(iter(response.data or []), {"requests_count": 0})
+    old_request_count = userItem['requests_count']
+
+    history = chat_message.history
+    history.append(("user", chat_message.question))
+
+    qa = get_qa_llm(chat_message, user.email)
+
+    if old_request_count == 0: 
+        create_user(user_id= user.email, date=date)
+    elif  old_request_count <  float(max_requests_number) : 
+        update_user_request_count(user_id=user.email,  date=date, requests_count= old_request_count+1)
+    else: 
+        history.append(('assistant', "You have reached your requests limit"))
+        return {"history": history }
+
+
+    if chat_message.use_summarization:
+        # 1. get summaries from the vector store based on question
+        summaries = similarity_search(
+            chat_message.question, table='match_summaries')
+        # 2. evaluate summaries against the question
+        evaluations = llm_evaluate_summaries(
+            chat_message.question, summaries, chat_message.model)
+        # 3. pull in the top documents from summaries
+        logger.info('Evaluations: %s', evaluations)
+        if evaluations:
+            reponse = commons['supabase'].from_('vectors').select(
+                '*').in_('id', values=[e['document_id'] for e in evaluations]).execute()
+        # 4. use top docs as additional context
+            additional_context = '---\nAdditional Context={}'.format(
+                '---\n'.join(data['content'] for data in reponse.data)
+            ) + '\n'
+        model_response = qa(
+            {"question": additional_context + chat_message.question})
+    else:
+        model_response = qa({"question": chat_message.question})
+    history.append(("assistant", model_response["answer"]))
+
+    return {"history": history}
+
+
+@app.post("/crawl/", dependencies=[Depends(JWTBearer())])
+async def crawl_endpoint(commons: CommonsDep, crawl_website: CrawlWebsite, enable_summarization: bool = False, credentials: dict = Depends(JWTBearer())):
+    user = User(email=credentials.get('email', 'none'))
+    file_path, file_name = crawl_website.process()
+
+    # Create a SpooledTemporaryFile from the file_path
+    spooled_file = SpooledTemporaryFile()
+    with open(file_path, 'rb') as f:
+        shutil.copyfileobj(f, spooled_file)
+
+    # Pass the SpooledTemporaryFile to UploadFile
+    file = UploadFile(file=spooled_file, filename=file_name)
+    message = await filter_file(file, enable_summarization, commons['supabase'], user=user)
+    return message
+
+
+@app.get("/explore", dependencies=[Depends(JWTBearer())])
+async def explore_endpoint(commons: CommonsDep,credentials: dict = Depends(JWTBearer()) ):
+    user = User(email=credentials.get('email', 'none'))
+    response = commons['supabase'].table("vectors").select(
+        "name:metadata->>file_name, size:metadata->>file_size", count="exact").filter("user_id", "eq", user.email).execute()
+    documents = response.data  # Access the data from the response
+    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    unique_data = [dict(t) for t in set(tuple(d.items()) for d in documents)]
+    # Sort the list of documents by size in decreasing order
+    unique_data.sort(key=lambda x: int(x['size']), reverse=True)
+
+    return {"documents": unique_data}
+
+
+@app.delete("/explore/{file_name}", dependencies=[Depends(JWTBearer())])
+async def delete_endpoint(commons: CommonsDep, file_name: str, credentials: dict = Depends(JWTBearer())):
+    user = User(email=credentials.get('email', 'none'))
+    # Cascade delete the summary from the database first, because it has a foreign key constraint
+    commons['supabase'].table("summaries").delete().match(
+        {"metadata->>file_name": file_name}).execute()
+    commons['supabase'].table("vectors").delete().match(
+        {"metadata->>file_name": file_name, "user_id": user.email}).execute()
+    return {"message": f"{file_name} of user {user.email} has been deleted."}
+
+
+@app.get("/explore/{file_name}", dependencies=[Depends(JWTBearer())])
+async def download_endpoint(commons: CommonsDep, file_name: str,credentials: dict = Depends(JWTBearer()) ):
+    user = User(email=credentials.get('email', 'none'))
+    response = commons['supabase'].table("vectors").select(
+        "metadata->>file_name, metadata->>file_size, metadata->>file_extension, metadata->>file_url", "content").match({"metadata->>file_name": file_name, "user_id": user.email}).execute()
+    documents = response.data
+    # Returns all documents with the same file name
+    return {"documents": documents}
+
+
+@app.get("/")
+async def root():
+    return {"status": "OK"}```. it looks like i do not have authentication on the frontend to upload the file to supabase storage. based on the fastapi python backend please give me modified complete correct code to upload a file to supabase storage
+    this is the fastapi backend code. i would like to store the uploaded file on supabase storage. can i do it directly on the nextjs frontend? please give me complete correct code

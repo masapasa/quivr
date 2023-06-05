@@ -1,0 +1,304 @@
+"bacbkend/main.py" ```import os
+import shutil
+import time
+from tempfile import SpooledTemporaryFile
+from urllib.request import HTTPBasicAuthHandler
+
+import pypandoc
+from auth.auth_bearer import JWTBearer
+from crawl.crawler import CrawlWebsite
+from fastapi import Depends, FastAPI, UploadFile
+from fastapi.security import HTTPBearer
+from llm.qa import get_qa_llm
+from llm.summarization import llm_evaluate_summaries
+from logger import get_logger
+from middlewares.cors import add_cors_middleware
+from models.chats import ChatMessage
+from models.users import User
+from pydantic import BaseModel
+from supabase import Client
+from utils.file import convert_bytes, get_file_size
+from utils.processors import filter_file
+from utils.vectors import (CommonsDep, create_user, similarity_search,
+                           update_user_request_count)
+logger = get_logger(__name__)
+app = FastAPI()
+add_cors_middleware(app)
+@app.on_event("startup")
+async def startup_event():
+    pypandoc.download_pandoc()
+@app.post("/upload", dependencies=[Depends(JWTBearer())])
+async def upload_file(commons: CommonsDep,  file: UploadFile, enable_summarization: bool = False, credentials: dict = Depends(JWTBearer())):
+    max_brain_size = os.getenv("MAX_BRAIN_SIZE")
+   
+    user = User(email=credentials.get('email', 'none'))
+    user_vectors_response = commons['supabase'].table("vectors").select(
+        "name:metadata->>file_name, size:metadata->>file_size", count="exact") \
+            .filter("user_id", "eq", user.email)\
+            .execute()
+    documents = user_vectors_response.data  # Access the data from the response
+    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    user_unique_vectors = [dict(t) for t in set(tuple(d.items()) for d in documents)]
+
+    current_brain_size = sum(float(doc['size']) for doc in user_unique_vectors)
+
+    file_size = get_file_size(file)
+
+    remaining_free_space =  float(max_brain_size) - (current_brain_size)
+
+    if remaining_free_space - file_size < 0:
+        message = {"message": f"❌ User's brain will exceed maximum capacity with this upload. Maximum file allowed is : {convert_bytes(remaining_free_space)}", "type": "error"}
+    else: 
+        message = await filter_file(file, enable_summarization, commons['supabase'], user)
+ 
+    return message
+@app.post("/chat/", dependencies=[Depends(JWTBearer())])
+async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, credentials: dict = Depends(JWTBearer())):
+    user = User(email=credentials.get('email', 'none'))
+    date = time.strftime("%Y%m%d")
+    max_requests_number = os.getenv("MAX_REQUESTS_NUMBER")
+    response = commons['supabase'].from_('users').select(
+    '*').filter("user_id", "eq", user.email).filter("date", "eq", date).execute()
+    userItem = next(iter(response.data or []), {"requests_count": 0})
+    old_request_count = userItem['requests_count']
+
+    history = chat_message.history
+    history.append(("user", chat_message.question))
+
+    qa = get_qa_llm(chat_message, user.email)
+
+    if old_request_count == 0: 
+        create_user(user_id= user.email, date=date)
+    elif  old_request_count <  float(max_requests_number) : 
+        update_user_request_count(user_id=user.email,  date=date, requests_count= old_request_count+1)
+    else: 
+        history.append(('assistant', "You have reached your requests limit"))
+        return {"history": history }```. "backend/llm/qa.py" ```import os
+from typing import Any, List
+from dotenv import load_dotenv
+
+from langchain.chains import ConversationalRetrievalChain
+from langchain.chat_models import ChatOpenAI, ChatVertexAI
+from langchain.chat_models.anthropic import ChatAnthropic
+from langchain.docstore.document import Document
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.llms import VertexAI
+from langchain.memory import ConversationBufferMemory
+from langchain.vectorstores import SupabaseVectorStore
+from llm import LANGUAGE_PROMPT
+from models.chats import ChatMessage
+from supabase import Client, create_client
+
+load_dotenv(verbose=True)
+
+class CustomSupabaseVectorStore(SupabaseVectorStore):
+    user_id: str
+    def __init__(self, client: Client, embedding: OpenAIEmbeddings, table_name: str, user_id: str = "none"):
+        super().__init__(client, embedding, table_name)
+        self.user_id = user_id
+    
+    def similarity_search(
+        self, 
+        query: str, 
+        user_id: str = "none",
+        table: str = "match_vectors", 
+        k: int = 4, 
+        threshold: float = 0.5, 
+        **kwargs: Any
+    ) -> List[Document]:
+        vectors = self._embedding.embed_documents([query])
+        query_embedding = vectors[0]
+        res = self._client.rpc(
+            table,
+            {
+                "query_embedding": query_embedding,
+                "match_count": k,
+                "p_user_id": self.user_id,
+            },
+        ).execute()
+
+        match_result = [
+            (
+                Document(
+                    metadata=search.get("metadata", {}),
+                    page_content=search.get("content", ""),
+                ),
+                search.get("similarity", 0.0),
+            )
+            for search in res.data
+            if search.get("content")
+        ]
+
+        documents = [doc for doc, _ in match_result]
+
+        return documents
+def get_environment_variables():
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY")
+    return openai_api_key, anthropic_api_key, supabase_url, supabase_key
+def create_clients_and_embeddings(openai_api_key, supabase_url, supabase_key):
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+    supabase_client = create_client(supabase_url, supabase_key)
+    
+    return supabase_client, embeddings
+
+def get_qa_llm(chat_message: ChatMessage, user_id: str):
+    openai_api_key, anthropic_api_key, supabase_url, supabase_key = get_environment_variables()
+    supabase_client, embeddings = create_clients_and_embeddings(openai_api_key, supabase_url, supabase_key)
+    
+    vector_store = CustomSupabaseVectorStore(
+        supabase_client, embeddings, table_name="vectors", user_id=user_id)
+    memory = ConversationBufferMemory(
+        memory_key="chat_history", return_messages=True)
+    
+    ConversationalRetrievalChain.prompts = LANGUAGE_PROMPT
+    
+    qa = None
+    ConversationalRetrievalChain.prompts = LANGUAGE_PROMPT
+    if chat_message.model.startswith("gpt"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatOpenAI(
+                model_name=chat_message.model, openai_api_key=openai_api_key, 
+                temperature=chat_message.temperature, max_tokens=chat_message.max_tokens), 
+                vector_store.as_retriever(), memory=memory, verbose=True, 
+                max_tokens_limit=1024)
+    elif chat_message.model.startswith("vertex"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatVertexAI(), vector_store.as_retriever(), memory=memory, verbose=False, max_tokens_limit=1024)
+    elif anthropic_api_key and chat_message.model.startswith("claude"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatAnthropic(
+                model=chat_message.model, anthropic_api_key=anthropic_api_key, temperature=chat_message.temperature, max_tokens_to_sample=chat_message.max_tokens), vector_store.as_retriever(), memory=memory, verbose=False, max_tokens_limit=102400)
+    return qa```. Now you can chat with all the files you have uploaded. i want to select one file to chat. give me correct complete modified code to select one file and chat with it based on the code i have provided
+
+If you want to select a specific file to chat with, you can modify the CustomSupabaseVectorStore class in the backend/llm/qa.py file to filter the search results by file name. Here’s an example of how you could do this:
+
+class CustomSupabaseVectorStore(SupabaseVectorStore):
+    user_id: str
+    file_name: str
+
+    def __init__(self, client: Client, embedding: OpenAIEmbeddings, table_name: str, user_id: str = "none", file_name: str = ""):
+        super().__init__(client, embedding, table_name)
+        self.user_id = user_id
+        self.file_name = file_name
+
+    def similarity_search(
+        self,
+        query: str,
+        user_id: str = "none",
+        table: str = "match_vectors",
+        k: int = 4,
+        threshold: float = 0.5,
+        **kwargs: Any
+    ) -> List[Document]:
+        vectors = self._embedding.embed_documents([query])
+        query_embedding = vectors[0]
+        res = self._client.rpc(
+            table,
+            {
+                "query_embedding": query_embedding,
+                "match_count": k,
+                "p_user_id": self.user_id,
+                "p_file_name": self.file_name,
+            },
+        ).execute()
+
+        match_result = [
+            (
+                Document(
+                    metadata=search.get("metadata", {}),
+                    page_content=search.get("content", ""),
+                ),
+                search.get("similarity", 0.0),
+            )
+            for search in res.data
+            if search.get("content")
+        ]
+
+        documents = [doc for doc, _ in match_result]
+
+        return documents
+Copy
+In this example, we’ve added a file_name attribute to the CustomSupabaseVectorStore class and modified the similarity_search method to pass the file_name attribute as a parameter to the rpc method.
+
+You’ll also need to modify the get_qa_llm function in the backend/llm/qa.py file to pass the file name when creating an instance of the CustomSupabaseVectorStore class. Here’s an example of how you could do this:
+
+def get_qa_llm(chat_message: ChatMessage, user_id: str):
+    openai_api_key, anthropic_api_key, supabase_url, supabase_key = get_environment_variables()
+    supabase_client, embeddings = create_clients_and_embeddings(openai_api_key, supabase_url, supabase_key)
+
+    vector_store = CustomSupabaseVectorStore(
+        supabase_client,
+        embeddings,
+        table_name="vectors",
+        user_id=user_id,
+        file_name=chat_message.file_name
+    )
+    memory = ConversationBufferMemory(
+        memory_key="chat_history", return_messages=True)
+
+    qa = None
+    ConversationalRetrievalChain.prompts = LANGUAGE_PROMPT
+    if chat_message.model.startswith("gpt"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatOpenAI(
+                model_name=chat_message.model,
+                openai_api_key=openai_api_key,
+                temperature=chat_message.temperature,
+                max_tokens=chat_message.max_tokens),
+            vector_store.as_retriever(),
+            memory=memory,
+            verbose=True,
+            max_tokens_limit=1024)
+    elif chat_message.model.startswith("vertex"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatVertexAI(), vector_store.as_retriever(), memory=memory, verbose=False, max_tokens_limit=1024)
+    elif anthropic_api_key and chat_message.model.startswith("claude"):
+        qa = ConversationalRetrievalChain.from_llm(
+            ChatAnthropic(
+                model=chat_message.model,
+                anthropic_api_key=anthropic_api_key,
+                temperature=chat_message.temperature,
+                max_tokens_to_sample=chat_message.max_tokens),
+            vector_store.as_retriever(),
+            memory=memory,
+            verbose=False,
+            max_tokens_limit=102400)
+    return qa
+Copy
+In this example, we’ve passed the file_name attribute of the chat_message object as an argument when creating an instance of the CustomSupabaseVectorStore class.
+
+Finally, you’ll need to modify your API endpoint to accept a file_name parameter and pass it to the ChatMessage object. Here’s an example of how you could do this:
+
+@app.post("/chat/", dependencies=[Depends(JWTBearer())])
+async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, file_name: str = "", credentials: dict = Depends(JWTBearer())):
+    user = User(email=credentials.get('email', 'none'))
+    date = time.strftime("%Y%m%d")
+    max_requests_number = os.getenv("MAX_REQUESTS_NUMBER")
+    response = commons['supabase'].from_('users').select(
+        '*').filter("user_id", "eq", user.email).filter("date", "eq", date).execute()
+    userItem = next(iter(response.data or []), {"requests_count": 0})
+    old_request_count = userItem['requests_count']
+
+    history = chat_message.history
+    history.append(("user", chat_message.question))
+
+    chat_message.file_name = file_name
+    qa = get_qa_llm(chat_message, user.email)
+
+    if old_request_count == 0:
+        create_user(user_id=user.email, date=date)
+    elif old_request_count < float(max_requests_number):
+        update_user_request_count(
+            user_id=user.email, date=date, requests_count=old_request_count+1)
+    else:
+        history.append(('assistant', "You have reached your requests limit"))
+        return {"history": history}
+Copy
+In this example, we’ve added a file_name parameter to the chat_endpoint function and passed it to the ChatMessage object.
+
+With these changes, you should be able to select a specific file to chat with by passing its name as a parameter to the /chat/ endpoint.
+
+I hope this helps! Let me know if you have any questions or if there’s anything else I can do to help.
