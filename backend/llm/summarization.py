@@ -1,10 +1,10 @@
 import os
-
+import dotenv
 import guidance
 import openai
 
 from logger import get_logger
-
+dotenv.load_dotenv(verbose=True)
 logger = get_logger(__name__)
 
 openai_api_key = os.environ.get("OPENAI_API_KEY")

@@ -60,47 +60,39 @@ async def upload_file(commons: CommonsDep,  file: UploadFile, enable_summarizati
         message = await filter_file(file, enable_summarization, commons['supabase'], user)
  
     return message
-
-
 @app.post("/chat/", dependencies=[Depends(JWTBearer())])
-async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, credentials: dict = Depends(JWTBearer())):
+async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, file_name: str = "", credentials: dict = Depends(JWTBearer())):
     user = User(email=credentials.get('email', 'none'))
     date = time.strftime("%Y%m%d")
     max_requests_number = os.getenv("MAX_REQUESTS_NUMBER")
     response = commons['supabase'].from_('users').select(
-    '*').filter("user_id", "eq", user.email).filter("date", "eq", date).execute()
-
-
+        '*').filter("user_id", "eq", user.email).filter("date", "eq", date).execute()
     userItem = next(iter(response.data or []), {"requests_count": 0})
     old_request_count = userItem['requests_count']
 
     history = chat_message.history
     history.append(("user", chat_message.question))
 
+    chat_message.file_name = file_name
     qa = get_qa_llm(chat_message, user.email)
 
-    if old_request_count == 0: 
-        create_user(user_id= user.email, date=date)
-    elif  old_request_count <  float(max_requests_number) : 
-        update_user_request_count(user_id=user.email,  date=date, requests_count= old_request_count+1)
-    else: 
+    if old_request_count == 0:
+        create_user(user_id=user.email, date=date)
+    elif old_request_count < float(max_requests_number):
+        update_user_request_count(
+            user_id=user.email, date=date, requests_count=old_request_count+1)
+    else:
         history.append(('assistant', "You have reached your requests limit"))
-        return {"history": history }
-
-
+        return {"history": history}
     if chat_message.use_summarization:
-        # 1. get summaries from the vector store based on question
         summaries = similarity_search(
             chat_message.question, table='match_summaries')
-        # 2. evaluate summaries against the question
         evaluations = llm_evaluate_summaries(
             chat_message.question, summaries, chat_message.model)
-        # 3. pull in the top documents from summaries
         logger.info('Evaluations: %s', evaluations)
         if evaluations:
             reponse = commons['supabase'].from_('vectors').select(
                 '*').in_('id', values=[e['document_id'] for e in evaluations]).execute()
-        # 4. use top docs as additional context
             additional_context = '---\nAdditional Context={}'.format(
                 '---\n'.join(data['content'] for data in reponse.data)
             ) + '\n'
@@ -111,8 +103,6 @@ async def chat_endpoint(commons: CommonsDep, chat_message: ChatMessage, credenti
     history.append(("assistant", model_response["answer"]))
 
     return {"history": history}
-
-
 @app.post("/crawl/", dependencies=[Depends(JWTBearer())])
 async def crawl_endpoint(commons: CommonsDep, crawl_website: CrawlWebsite, enable_summarization: bool = False, credentials: dict = Depends(JWTBearer())):
     max_brain_size = os.getenv("MAX_BRAIN_SIZE")
@@ -122,8 +112,7 @@ async def crawl_endpoint(commons: CommonsDep, crawl_website: CrawlWebsite, enabl
         "name:metadata->>file_name, size:metadata->>file_size", count="exact") \
             .filter("user_id", "eq", user.email)\
             .execute()
-    documents = user_vectors_response.data  # Access the data from the response
-    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    documents = user_vectors_response.data
     user_unique_vectors = [dict(t) for t in set(tuple(d.items()) for d in documents)]
 
     current_brain_size = sum(float(doc['size']) for doc in user_unique_vectors)
@@ -139,73 +128,52 @@ async def crawl_endpoint(commons: CommonsDep, crawl_website: CrawlWebsite, enabl
         if not crawl_website.checkGithub():
 
             file_path, file_name = crawl_website.process()
-
-            # Create a SpooledTemporaryFile from the file_path
             spooled_file = SpooledTemporaryFile()
             with open(file_path, 'rb') as f:
                 shutil.copyfileobj(f, spooled_file)
-
-            # Pass the SpooledTemporaryFile to UploadFile
             file = UploadFile(file=spooled_file, filename=file_name)
             message = await filter_file(file, enable_summarization, commons['supabase'], user=user)
             return message
         else:
             message = await process_github(crawl_website.url, "false", user=user, supabase=commons['supabase'])
-
-
 @app.get("/explore", dependencies=[Depends(JWTBearer())])
 async def explore_endpoint(commons: CommonsDep,credentials: dict = Depends(JWTBearer()) ):
     user = User(email=credentials.get('email', 'none'))
     response = commons['supabase'].table("vectors").select(
         "name:metadata->>file_name, size:metadata->>file_size", count="exact").filter("user_id", "eq", user.email).execute()
-    documents = response.data  # Access the data from the response
-    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    documents = response.data
     unique_data = [dict(t) for t in set(tuple(d.items()) for d in documents)]
-    # Sort the list of documents by size in decreasing order
     unique_data.sort(key=lambda x: int(x['size']), reverse=True)
-
     return {"documents": unique_data}
-
-
 @app.delete("/explore/{file_name}", dependencies=[Depends(JWTBearer())])
 async def delete_endpoint(commons: CommonsDep, file_name: str, credentials: dict = Depends(JWTBearer())):
     user = User(email=credentials.get('email', 'none'))
-    # Cascade delete the summary from the database first, because it has a foreign key constraint
     commons['supabase'].table("summaries").delete().match(
         {"metadata->>file_name": file_name}).execute()
     commons['supabase'].table("vectors").delete().match(
         {"metadata->>file_name": file_name, "user_id": user.email}).execute()
     return {"message": f"{file_name} of user {user.email} has been deleted."}
-
-
 @app.get("/explore/{file_name}", dependencies=[Depends(JWTBearer())])
 async def download_endpoint(commons: CommonsDep, file_name: str,credentials: dict = Depends(JWTBearer()) ):
     user = User(email=credentials.get('email', 'none'))
     response = commons['supabase'].table("vectors").select(
         "metadata->>file_name, metadata->>file_size, metadata->>file_extension, metadata->>file_url", "content").match({"metadata->>file_name": file_name, "user_id": user.email}).execute()
     documents = response.data
-    # Returns all documents with the same file name
     return {"documents": documents}
 
 @app.get("/user", dependencies=[Depends(JWTBearer())])
 async def get_user_endpoint(commons: CommonsDep, credentials: dict = Depends(JWTBearer())):
-    # Create a function that returns the unique documents out of the vectors 
-    # Create a function that returns the list of documents that can take in what to put in the select + the filter 
     user = User(email=credentials.get('email', 'none'))
-    # Cascade delete the summary from the database first, because it has a foreign key constraint
     user_vectors_response = commons['supabase'].table("vectors").select(
         "name:metadata->>file_name, size:metadata->>file_size", count="exact") \
             .filter("user_id", "eq", user.email)\
             .execute()
-    documents = user_vectors_response.data  # Access the data from the response
-    # Convert each dictionary to a tuple of items, then to a set to remove duplicates, and then back to a dictionary
+    documents = user_vectors_response.data
     user_unique_vectors = [dict(t) for t in set(tuple(d.items()) for d in documents)]
 
     current_brain_size = sum(float(doc['size']) for doc in user_unique_vectors)
 
     max_brain_size = os.getenv("MAX_BRAIN_SIZE")
-
-    # Create function get user request stats -> nombre de requetes par jour + max number of requests -> svg to display the number of requests ? une fusee ?
     user = User(email=credentials.get('email', 'none'))
     date = time.strftime("%Y%m%d")
     max_requests_number = os.getenv("MAX_REQUESTS_NUMBER")
@@ -219,8 +187,6 @@ async def get_user_endpoint(commons: CommonsDep, credentials: dict = Depends(JWT
             "requests_stats" : requests_stats.data,
             "date": date,
             }
-
-
 @app.get("/")
 async def root():
     return {"status": "OK"}

@@ -1,6 +1,6 @@
 import os
 from typing import Annotated, List, Tuple
-
+import dotenv
 from fastapi import Depends, UploadFile
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema import Document
@@ -9,7 +9,7 @@ from llm.summarization import llm_summerize
 from logger import get_logger
 from pydantic import BaseModel
 from supabase import Client, create_client
-
+dotenv.load_dotenv(verbose=True)
 logger = get_logger(__name__)
 
 

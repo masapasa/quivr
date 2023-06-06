@@ -8,9 +8,21 @@ import ChatMessages from "./components/ChatMessages";
 import { useQuestion } from "./hooks/useQuestion";
 import { useSpeech } from "./hooks/useSpeech";
 
-export default function ChatPage() {
-  const { history, isPending, question, askQuestion, setQuestion } =
-    useQuestion();
+export default function ChatPage({
+  history: initialHistory,
+  setHistory: updateHistory,
+}: {
+  history?: Array<[string, string]>;
+  setHistory?: Dispatch<SetStateAction<Array<[string, string]>>>;
+}) {
+  const {
+    history,
+    setHistory,
+    isPending,
+    question,
+    askQuestion,
+    setQuestion,
+  } = useQuestion(initialHistory || [], updateHistory);
   const { isListening, speechSupported, startListening } = useSpeech();
 
   return (

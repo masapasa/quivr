@@ -3,7 +3,7 @@ import tempfile
 import time
 from io import BytesIO
 from tempfile import NamedTemporaryFile
-
+import dotenv
 import openai
 from fastapi import UploadFile
 from langchain.document_loaders import TextLoader
@@ -12,7 +12,7 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from utils.file import compute_sha1_from_content
 from utils.vectors import documents_vector_store
-
+dotenv.load_dotenv(verbose=True)
 # # Create a function to transcribe audio using Whisper
 # def _transcribe_audio(api_key, audio_file, stats_db):
 #     openai.api_key = api_key

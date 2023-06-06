@@ -3,9 +3,9 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
+import dotenv
 from .auth_handler import decode_access_token
-
+dotenv.load_dotenv(verbose=True)
 
 class JWTBearer(HTTPBearer):
     def __init__(self, auto_error: bool = True):

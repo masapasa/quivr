@@ -1,10 +1,10 @@
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-
+import dotenv
 from jose import jwt
 from jose.exceptions import JWTError
-
+dotenv.load_dotenv(verbose=True)
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 

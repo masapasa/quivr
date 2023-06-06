@@ -15,6 +15,7 @@ import { AnimatedCard } from "../../components/ui/Card";
 import Modal from "../../components/ui/Modal";
 import { Document } from "../types";
 import DocumentData from "./DocumentData";
+import Chat from "../../chat/page";
 
 interface DocumentProps {
   document: Document;
@@ -24,12 +25,13 @@ interface DocumentProps {
 const DocumentItem = forwardRef(
   ({ document, setDocuments }: DocumentProps, forwardedRef) => {
     const [isDeleting, setIsDeleting] = useState(false);
+    const [chatHistory, setChatHistory] = useState<Array<[string, string]>>([]);
     const { publish } = useToast();
     const { session } = useSupabase();
     const { axiosInstance } = useAxios();
 
     if (!session) {
-      throw new Error("User session not found");
+      redirect("/login");
     }
 
     const deleteDocument = async (name: string) => {
@@ -59,6 +61,15 @@ const DocumentItem = forwardRef(
         <div className="flex gap-2 self-end">
           <Modal Trigger={<Button className="">View</Button>}>
             <DocumentData documentName={document.name} />
+          </Modal>
+          <Modal
+            title={"Chat"}
+            Trigger={<Button>Chat</Button>}
+            CloseTrigger={
+              <Button onClick={() => setChatHistory([])}>Clear History</Button>
+            }
+          >
+            <Chat history={chatHistory} setHistory={setChatHistory} />
           </Modal>
 
           <Modal
